@@ -2,9 +2,12 @@
 
 const express = require('express');
 const router = express.Router();
-const pool = require('../db');
-const generatePDF = require('../services/pdfGenerator');
-const generateRules = require('../services/rules');
+
+let pool, generatePDF, generateRules;
+
+try { pool = require('./db'); } catch (e) { pool = require('../db'); }
+try { generatePDF = require('./pdfGenerator'); } catch (e) { generatePDF = require('../services/pdfGenerator'); }
+try { generateRules = require('./rules'); } catch (e) { generateRules = require('../services/rules'); }
 
 function buildRecommendationInput(patient) {
     const height = Number(patient.height || 0);

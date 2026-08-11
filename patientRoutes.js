@@ -1,10 +1,19 @@
-//backend\routes\patients.js
-
 const express = require('express');
 const router = express.Router();
-const pool = require('../db');
-const generateRules = require('../services/rules');
-const { authenticateCookie, requireRole } = require('../middleware/auth');
+
+let pool, generateRules, authenticateCookie, requireRole;
+
+try { pool = require('./db'); } catch (e) { pool = require('../db'); }
+try { generateRules = require('./rules'); } catch (e) { generateRules = require('../services/rules'); }
+try {
+    const authModule = require('./authMiddleware');
+    authenticateCookie = authModule.authenticateCookie;
+    requireRole = authModule.requireRole;
+} catch (e) {
+    const authModule = require('../middleware/auth');
+    authenticateCookie = authModule.authenticateCookie;
+    requireRole = authModule.requireRole;
+}
 
 async function verifyRecaptchaToken(recaptchaToken) {
     return { success: true };
