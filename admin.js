@@ -85,17 +85,24 @@ router.post('/doctors', async (req, res) => {
 
         const createdDoctor = result.rows[0];
 
-        // Send email notification if email address is provided
+        // Send email notification non-blockingly
         let emailResult = { sent: false };
         if (createdDoctor.email) {
             const baseUrl = process.env.PUBLIC_APP_URL || (req.headers.origin && !req.headers.origin.includes('localhost') ? req.headers.origin : 'https://sleep-aurora.web.app');
             const inviteUrl = `${baseUrl}/register-doctor.html?token=${invite_token}`;
             
-            emailResult = await sendDoctorInviteEmail({
-                toEmail: createdDoctor.email,
-                doctorName: createdDoctor.full_name,
-                inviteUrl
-            });
+            // Execute email sending with a quick 3-second race so frontend responds instantly
+            try {
+                const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ sent: false, error: 'Email dispatch queued in background' }), 3000));
+                const emailPromise = sendDoctorInviteEmail({
+                    toEmail: createdDoctor.email,
+                    doctorName: createdDoctor.full_name,
+                    inviteUrl
+                });
+                emailResult = await Promise.race([emailPromise, timeoutPromise]);
+            } catch (e) {
+                console.error('Email send warning:', e.message);
+            }
         }
 
         return res.status(201).json({

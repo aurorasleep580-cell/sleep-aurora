@@ -5,24 +5,18 @@ const nodemailer = require('nodemailer');
  * Create SMTP Transporter dynamically based on .env config
  */
 function getTransporter() {
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const host = process.env.SMTP_HOST || 'smtp.gmail.com';
-    const port = parseInt(process.env.SMTP_PORT || '465', 10);
-    const secure = process.env.SMTP_SECURE === 'false' ? false : (port === 465);
-
-    if (!user || !pass) {
-        return null; // SMTP credentials not configured
-    }
+    const user = process.env.SMTP_USER || 'aurorasleep580@gmail.com';
+    const pass = process.env.SMTP_PASS || 'jqwzodjepnjibgfd';
 
     return nodemailer.createTransport({
-        host,
-        port,
-        secure,
+        service: 'gmail',
         auth: {
             user,
             pass
-        }
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 10000
     });
 }
 
@@ -32,16 +26,7 @@ function getTransporter() {
 async function sendDoctorInviteEmail({ toEmail, doctorName, inviteUrl }) {
     try {
         const transporter = getTransporter();
-
-        if (!transporter) {
-            console.log(`[EmailService] ℹ️ SMTP credentials missing in .env (SMTP_USER / SMTP_PASS). Skipping email dispatch for ${toEmail}.`);
-            return {
-                sent: false,
-                reason: 'SMTP credentials not configured in backend .env'
-            };
-        }
-
-        const fromAddress = process.env.SMTP_FROM || `Aurora Sleep Screening <${process.env.SMTP_USER}>`;
+        const fromAddress = process.env.SMTP_FROM || 'Aurora Sleep Screening <aurorasleep580@gmail.com>';
         const doctorDisplayName = doctorName || 'Doctor';
 
         const htmlContent = `
