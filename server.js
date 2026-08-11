@@ -4,11 +4,37 @@ const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
 
-const evaluateAll = require('./scoring');
-const patientRoutes = require('./routes/patients');
-const authRoutes = require('./routes/auth');
-const pdfRoutes = require('./routes/pdf');
-const adminRoutes = require('./routes/admin');
+let evaluateAll, patientRoutes, authRoutes, pdfRoutes, adminRoutes;
+
+try {
+    evaluateAll = require('./scoring.js');
+} catch (e) {
+    try { evaluateAll = require('./scoring/index.js'); } catch (e2) { evaluateAll = require('./scoring'); }
+}
+
+try {
+    patientRoutes = require('./routes/patients');
+} catch (e) {
+    patientRoutes = require('./patientRoutes');
+}
+
+try {
+    authRoutes = require('./routes/auth');
+} catch (e) {
+    authRoutes = require('./authRoutes');
+}
+
+try {
+    pdfRoutes = require('./routes/pdf');
+} catch (e) {
+    pdfRoutes = require('./pdfRoutes');
+}
+
+try {
+    adminRoutes = require('./routes/admin');
+} catch (e) {
+    adminRoutes = require('./adminRoutes');
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -26,6 +52,7 @@ app.use('/api/pdf', pdfRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/admin', adminRoutes);
 
+// Static frontend fallback
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
 // Test endpoint
@@ -41,7 +68,7 @@ app.post('/api/submit', (req, res) => {
     const answers = req.body;
     console.log('Received answers:', answers);
 
-    const results = evaluateAll(answers);
+    const results = typeof evaluateAll === 'function' ? evaluateAll(answers) : evaluateAll.evaluateAll(answers);
 
     res.json({
         success: true,
@@ -60,7 +87,6 @@ function hashPassword(password) {
 async function seedSuperAdmin() {
     const pool = require('./db');
     try {
-        // Ensure users table has the new columns
         await pool.query(`
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -79,40 +105,22 @@ async function seedSuperAdmin() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-            ALTER TABLE users ALTER COLUMN username DROP NOT NULL;
-            ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_token VARCHAR(100) UNIQUE;
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMP;
-            ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
         `);
 
-        // Check if a super_admin exists
         const adminCheck = await pool.query("SELECT COUNT(*) FROM users WHERE role = 'super_admin'");
         const adminCount = parseInt(adminCheck.rows[0].count);
 
         if (adminCount === 0) {
-            // Check if old 'clinician' user exists and upgrade it
-            const clinicianCheck = await pool.query("SELECT id FROM users WHERE username = 'clinician'");
-            
-            if (clinicianCheck.rows.length > 0) {
-                // Upgrade existing clinician to super_admin
-                await pool.query(
-                    "UPDATE users SET role = 'super_admin', full_name = 'Platform Admin' WHERE username = 'clinician'"
-                );
-                console.log('ℹ️ Upgraded existing "clinician" user to super_admin role');
-            } else {
-                // Create fresh super_admin
-                const defaultUser = 'admin';
-                const defaultPass = 'AuroraSleep2026!';
-                const hash = hashPassword(defaultPass);
-                await pool.query(
-                    `INSERT INTO users (username, password_hash, role, full_name)
-                     VALUES ($1, $2, 'super_admin', 'Platform Admin')
-                     ON CONFLICT (username) DO NOTHING`,
-                    [defaultUser, hash]
-                );
-                console.log(`ℹ️ Seeded super admin: "${defaultUser}" with password "${defaultPass}"`);
-            }
+            const defaultUser = 'admin';
+            const defaultPass = 'AuroraSleep2026!';
+            const hash = hashPassword(defaultPass);
+            await pool.query(
+                `INSERT INTO users (username, password_hash, role, full_name)
+                 VALUES ($1, $2, 'super_admin', 'Platform Admin')
+                 ON CONFLICT (username) DO NOTHING`,
+                [defaultUser, hash]
+            );
+            console.log(`ℹ️ Seeded super admin: "${defaultUser}" with password "${defaultPass}"`);
         }
     } catch (err) {
         console.error('❌ Failed to seed super admin:', err.message);
