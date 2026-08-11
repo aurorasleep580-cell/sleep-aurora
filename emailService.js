@@ -1,19 +1,25 @@
-// backend/services/emailService.js
+// backend/emailService.js
 const nodemailer = require('nodemailer');
 
 /**
- * Create SMTP Transporter dynamically based on .env config
+ * Create SMTP Transporter forced to IPv4 to prevent cloud IPv6 reachability timeouts
  */
 function getTransporter() {
     const user = process.env.SMTP_USER || 'aurorasleep580@gmail.com';
     const pass = process.env.SMTP_PASS || 'jqwzodjepnjibgfd';
 
     return nodemailer.createTransport({
-        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
         auth: {
             user,
             pass
         },
+        tls: {
+            rejectUnauthorized: false
+        },
+        family: 4, // Force IPv4 routing
         connectionTimeout: 10000,
         greetingTimeout: 10000,
         socketTimeout: 10000
