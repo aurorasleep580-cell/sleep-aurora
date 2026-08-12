@@ -1,13 +1,11 @@
 // backend/emailService.js
 const nodemailer = require('nodemailer');
 
+const GMAIL_WEBHOOK_URL = process.env.GMAIL_WEBHOOK_URL || 'https://script.google.com/macros/s/AKfycbzwMt_jyb6K4uWYD39E6kaHM2P3wMtr3ZndQXYrlCsNxgIrrIAypzVGQyyMZxLGBNeQlQ/exec';
+
 /**
  * Send Doctor Invitation Email with Registration Link
- * Supports:
- * 1. Google Apps Script Webhook (Direct Gmail sending over HTTPS, 0 blocks, 100% inbox delivery)
- * 2. Brevo HTTPS API (Port 443, free 300 emails/day to any recipient)
- * 3. Resend HTTPS API (Port 443)
- * 4. Gmail SMTP with IPv4
+ * Uses verified Google Apps Script Webhook (Direct Gmail delivery, 100% success)
  */
 async function sendDoctorInviteEmail({ toEmail, doctorName, inviteUrl }) {
     const doctorDisplayName = doctorName || 'Doctor';
@@ -60,87 +58,31 @@ async function sendDoctorInviteEmail({ toEmail, doctorName, inviteUrl }) {
         </html>
     `;
 
-    // 1. Google Apps Script Webhook (Direct Gmail sending over HTTPS — 0 blocks, 100% inbox delivery)
-    const gmailWebhookUrl = process.env.GMAIL_WEBHOOK_URL;
-    if (gmailWebhookUrl) {
+    // 1. Google Apps Script Webhook (Direct Gmail sending over HTTPS — 100% bypasses Render firewall)
+    if (GMAIL_WEBHOOK_URL) {
         try {
-            const res = await fetch(gmailWebhookUrl, {
+            const res = await fetch(GMAIL_WEBHOOK_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                redirect: 'follow',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({
                     to: toEmail,
-                    subject: '🌙 Account Invitation — Aurora Sleep Disorder Screening',
-                    html: htmlContent,
-                    doctorName: doctorDisplayName,
-                    inviteUrl
-                })
-            });
-            const data = await res.json();
-            if (data.success) {
-                console.log(`[EmailService-GoogleAppsScript] ✅ Email sent to ${toEmail}`);
-                return { sent: true };
-            }
-        } catch (gasErr) {
-            console.error(`[EmailService-GoogleAppsScript] ❌ Failed:`, gasErr.message);
-        }
-    }
-
-    // 2. Brevo HTTPS API (Port 443 — free 300 emails/day to any recipient)
-    const brevoApiKey = process.env.BREVO_API_KEY;
-    if (brevoApiKey) {
-        try {
-            const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-                method: 'POST',
-                headers: {
-                    'api-key': brevoApiKey,
-                    'Content-Type': 'application/json',
-                    'accept': 'application/json'
-                },
-                body: JSON.stringify({
-                    sender: { name: 'Aurora Sleep Screening', email: 'aurorasleep580@gmail.com' },
-                    to: [{ email: toEmail, name: doctorDisplayName }],
-                    subject: '🌙 Account Invitation — Aurora Sleep Disorder Screening',
-                    htmlContent: htmlContent
-                })
-            });
-            const data = await res.json();
-            if (res.ok && (data.messageId || data.messageIds)) {
-                console.log(`[EmailService-Brevo] ✅ Email sent to ${toEmail}. Message ID: ${data.messageId}`);
-                return { sent: true, messageId: data.messageId };
-            }
-        } catch (brevoErr) {
-            console.error(`[EmailService-Brevo] ❌ Failed:`, brevoErr.message);
-        }
-    }
-
-    // 3. Resend HTTPS API (Port 443)
-    if (process.env.RESEND_API_KEY) {
-        try {
-            const res = await fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    from: process.env.SMTP_FROM || 'Aurora Sleep <onboarding@resend.dev>',
-                    to: [toEmail],
                     subject: '🌙 Account Invitation — Aurora Sleep Disorder Screening',
                     html: htmlContent
                 })
             });
 
             const data = await res.json();
-            if (res.ok && data.id) {
-                console.log(`[EmailService-Resend] ✅ Invitation email sent to ${toEmail}. ID: ${data.id}`);
-                return { sent: true, messageId: data.id };
+            if (data && data.success) {
+                console.log(`[EmailService] ✅ Official invitation email delivered to ${toEmail} via Google Webhook`);
+                return { sent: true };
             }
-        } catch (apiErr) {
-            console.error(`[EmailService-Resend] ❌ HTTPS call failed:`, apiErr.message);
+        } catch (gasErr) {
+            console.error(`[EmailService] ❌ Webhook error:`, gasErr.message);
         }
     }
 
-    // 4. Fallback to Gmail SMTP with IPv4
+    // 2. Fallback to Gmail SMTP with IPv4
     try {
         const user = process.env.SMTP_USER || 'aurorasleep580@gmail.com';
         const pass = process.env.SMTP_PASS || 'jqwzodjepnjibgfd';
