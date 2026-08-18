@@ -223,7 +223,15 @@ router.post('/:id/submit', async (req, res) => {
             duration: row.duration
         };
 
-        const evaluateAll = require('../scoring');
+        let evaluateAll;
+        try { evaluateAll = require('./scoring'); } catch(e) {
+            try { evaluateAll = require('./scoring.js'); } catch(e2) {
+                try { evaluateAll = require('../scoring'); } catch(e3) {
+                    evaluateAll = require('../scoring/index.js');
+                }
+            }
+        }
+
         const results = evaluateAll(answers);
 
         const recommendationData = {
@@ -234,6 +242,14 @@ router.post('/:id/submit', async (req, res) => {
             bmi: answers.height && answers.weight ?
                   answers.weight / ((answers.height/100) * (answers.height/100)) : null
         };
+
+        if (!generateRules) {
+            try { generateRules = require('./rules'); } catch(e) {
+                try { generateRules = require('./rules.js'); } catch(e2) {
+                    generateRules = require('../services/rules');
+                }
+            }
+        }
 
         const recommendations = generateRules(recommendationData);
 
