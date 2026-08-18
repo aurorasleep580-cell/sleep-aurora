@@ -428,4 +428,131 @@ router.post('/register-doctor', async (req, res) => {
     }
 });
 
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req, res) => {
+    try {
+        const { identifier } = req.body;
+        if (!identifier || !identifier.trim()) {
+            return res.status(400).json({ success: false, message: 'Please enter your registered email or username.' });
+        }
+
+        const clean = identifier.trim().toLowerCase();
+        const userQuery = await pool.query(
+            `SELECT id, username, email, full_name FROM users WHERE LOWER(email) = $1 OR LOWER(username) = $1`,
+            [clean]
+        );
+
+        if (userQuery.rows.length === 0) {
+            return res.json({
+                success: true,
+                message: 'If an account exists with that email/username, a password reset link has been dispatched to the registered email.'
+            });
+        }
+
+        const user = userQuery.rows[0];
+        if (!user.email) {
+            return res.status(400).json({
+                success: false,
+                message: 'No registered email found for this account. Please contact the administrator.'
+            });
+        }
+
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+        await pool.query(
+            `UPDATE users SET reset_token = $1, reset_expires_at = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+            [resetToken, resetExpires, user.id]
+        );
+
+        let emailService;
+        try { emailService = require('./emailService'); } catch(e) { emailService = require('../services/emailService'); }
+
+        const baseUrl = process.env.PUBLIC_APP_URL || (req.headers.origin && !req.headers.origin.includes('localhost') ? req.headers.origin : 'https://sleep-aurora.web.app');
+        const resetUrl = `${baseUrl}/reset-password.html?token=${resetToken}`;
+
+        await emailService.sendPasswordResetEmail({
+            toEmail: user.email,
+            userName: user.full_name || user.username,
+            resetUrl
+        });
+
+        return res.json({
+            success: true,
+            message: `A password reset link has been dispatched to ${user.email}. Please check your inbox!`
+        });
+
+    } catch (err) {
+        console.error('Forgot password error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to process password reset request.' });
+    }
+});
+
+// GET /api/auth/verify-reset-token
+router.get('/verify-reset-token', async (req, res) => {
+    try {
+        const { token } = req.query;
+        if (!token) return res.status(400).json({ success: false, message: 'Reset token is required.' });
+
+        const result = await pool.query(
+            `SELECT id, username, full_name, email FROM users WHERE reset_token = $1 AND reset_expires_at > CURRENT_TIMESTAMP`,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(400).json({ success: false, message: 'This password reset link is invalid or has expired.' });
+        }
+
+        const user = result.rows[0];
+        return res.json({
+            success: true,
+            username: user.username,
+            fullName: user.full_name || user.username
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: 'Server error verifying reset token.' });
+    }
+});
+
+// POST /api/auth/reset-password
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { token, new_password } = req.body;
+        if (!token || !new_password) {
+            return res.status(400).json({ success: false, message: 'Token and new password are required.' });
+        }
+
+        if (new_password.length < 6) {
+            return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
+        }
+
+        const result = await pool.query(
+            `SELECT id, username, full_name FROM users WHERE reset_token = $1 AND reset_expires_at > CURRENT_TIMESTAMP`,
+            [token]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(400).json({ success: false, message: 'This password reset link is invalid or has expired. Please request a new link.' });
+        }
+
+        const user = result.rows[0];
+        const newHash = hashPassword(new_password);
+
+        await pool.query(
+            `UPDATE users 
+             SET password_hash = $1, reset_token = NULL, reset_expires_at = NULL, updated_at = CURRENT_TIMESTAMP 
+             WHERE id = $2`,
+            [newHash, user.id]
+        );
+
+        return res.json({
+            success: true,
+            message: 'Your password has been reset successfully! You can now log in.'
+        });
+    } catch (err) {
+        console.error('Reset password error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to reset password.' });
+    }
+});
+
 module.exports = router;
