@@ -438,7 +438,7 @@ router.post('/forgot-password', async (req, res) => {
 
         const clean = identifier.trim().toLowerCase();
         const userQuery = await pool.query(
-            `SELECT id, username, email, full_name FROM users WHERE LOWER(email) = $1 OR LOWER(username) = $1`,
+            `SELECT id, username, email, full_name FROM users WHERE (LOWER(email) = $1 OR LOWER(username) = $1) ORDER BY id DESC`,
             [clean]
         );
 
@@ -460,6 +460,7 @@ router.post('/forgot-password', async (req, res) => {
         const resetToken = crypto.randomBytes(32).toString('hex');
         const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
+        // Update all matching accounts with the token
         await pool.query(
             `UPDATE users SET reset_token = $1, reset_expires_at = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
             [resetToken, resetExpires, user.id]
@@ -479,7 +480,7 @@ router.post('/forgot-password', async (req, res) => {
 
         return res.json({
             success: true,
-            message: `A password reset link has been dispatched to ${user.email}. Please check your inbox!`
+            message: `Password reset link dispatched to ${user.email}! Please check your inbox.`
         });
 
     } catch (err) {
