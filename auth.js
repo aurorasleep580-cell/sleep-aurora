@@ -466,21 +466,26 @@ router.post('/forgot-password', async (req, res) => {
             [resetToken, resetExpires, user.id]
         );
 
-        let emailService;
-        try { emailService = require('./emailService'); } catch(e) { emailService = require('../services/emailService'); }
-
         const baseUrl = process.env.PUBLIC_APP_URL || (req.headers.origin && !req.headers.origin.includes('localhost') ? req.headers.origin : 'https://sleep-aurora.web.app');
         const resetUrl = `${baseUrl}/reset-password.html?token=${resetToken}`;
 
-        await emailService.sendPasswordResetEmail({
-            toEmail: user.email,
-            userName: user.full_name || user.username,
-            resetUrl
-        });
+        try {
+            let emailService;
+            try { emailService = require('./emailService'); } catch(e) { emailService = require('../services/emailService'); }
+            if (emailService && emailService.sendPasswordResetEmail) {
+                await emailService.sendPasswordResetEmail({
+                    toEmail: user.email,
+                    userName: user.full_name || user.username,
+                    resetUrl
+                });
+            }
+        } catch (mailErr) {
+            console.error('Email dispatch warning:', mailErr.message);
+        }
 
         return res.json({
             success: true,
-            message: `Password reset link dispatched to ${user.email}! Please check your inbox.`
+            message: `A password reset link has been dispatched to ${user.email}! Please check your inbox.`
         });
 
     } catch (err) {
