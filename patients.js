@@ -362,6 +362,201 @@ router.patch('/:id', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────
+// Export patients to CSV / Excel (AUTH REQUIRED)
+// Super Admin gets all patients, Doctor gets their own
+// ──────────────────────────────────────────────
+router.get('/export/csv', authenticateCookie, async (req, res) => {
+    try {
+        let query = `
+            SELECT 
+                p.id AS patient_id,
+                p.full_name,
+                p.phone,
+                p.email,
+                p.status,
+                p.created_at,
+                p.referral_source,
+                u.full_name AS doctor_name,
+                sa.age,
+                sa.gender,
+                sa.menstrual,
+                sa.height,
+                sa.weight,
+                sa.neck_raw,
+                sa.medical,
+                sa.consumption,
+                sa.work,
+                sa.schedule,
+                sa.sleep_start,
+                sa.wake_time,
+                sa.avg_sleep,
+                sa.sleep_satisfaction,
+                sa.daytime_satisfaction,
+                sa.daytime_sleepy,
+                sa.sleepy_freq,
+                sa.insomnia_gate,
+                sa.sleep_latency,
+                sa.night_waking,
+                sa.difficulty_back_sleep,
+                sa.hypersomnia_gate,
+                sa.difficulty_waking,
+                sa.nap_freq,
+                sa.nap_duration,
+                sa.nap_refreshed,
+                sa.snoring_gate,
+                sa.witnessed_apnea,
+                sa.loud_snoring,
+                sa.night_awakenings,
+                sa.morning_headache,
+                sa.dry_mouth,
+                sa.circadian_gate,
+                sa.chronotype,
+                sa.brain_fog,
+                sa.weekend_shift,
+                sa.duration,
+                sr.sleep_opportunity,
+                sr.osa_score,
+                sr.osa_tier,
+                sr.insomnia_score,
+                sr.insomnia_tier,
+                sr.hypersomnia_score,
+                sr.hypersomnia_tier,
+                sr.circadian_score,
+                sr.circadian_tier,
+                sr.circadian_subtypes,
+                sr.primary_finding_label,
+                sr.comorbidities,
+                sr.submitted_at
+            FROM patients p
+            LEFT JOIN users u ON p.doctor_id = u.id
+            LEFT JOIN screening_answers sa ON p.id = sa.patient_id
+            LEFT JOIN screening_results sr ON p.id = sr.patient_id
+        `;
+        const values = [];
+
+        if (req.user.role === 'doctor') {
+            query += ` WHERE p.doctor_id = $1`;
+            values.push(req.user.sub);
+        }
+
+        query += ` ORDER BY p.id DESC`;
+
+        const result = await pool.query(query, values);
+
+        const headers = [
+            'Patient ID', 'Submission Date', 'Full Name', 'Phone', 'Email', 'Status', 'Doctor Assigned', 'Referral Source',
+            'Age', 'Gender', 'Menopause Status', 'Height (cm)', 'Weight (kg)', 'Calculated BMI', 'Neck Circumference (cm)',
+            'Medical Conditions', 'Substances Consumed', 'Work Type', 'Schedule Type', 'Sleep Start Time', 'Wake Time',
+            'Calculated Sleep Opportunity (hrs)', 'Avg Sleep (hrs)', 'Sleep Satisfaction', 'Daytime Functioning',
+            'Daytime Sleepy', 'Sleepiness Frequency', 'Insomnia Gate', 'Sleep Latency (SOL)', 'Night Waking (WASO)',
+            'Difficulty Returning to Sleep', 'Hypersomnia Gate', 'Difficulty Waking (Sleep Inertia)', 'Nap Frequency',
+            'Nap Duration', 'Naps Refreshed', 'Snoring Gate', 'Witnessed Apnea / Choking', 'Loud Snoring',
+            'Night Awakenings (>3)', 'Morning Headache', 'Dry Mouth', 'Circadian Gate', 'Chronotype', 'Morning Brain Fog',
+            'Weekend Sleep Shift', 'Symptom Duration', 'OSA Score', 'OSA Tier', 'Insomnia Score', 'Insomnia Tier',
+            'Hypersomnia Score', 'Hypersomnia Tier', 'Circadian Score', 'Circadian Tier', 'Circadian Subtypes',
+            'Primary Finding', 'Comorbidities Detected'
+        ];
+
+        function escapeCSV(val) {
+            if (val === null || val === undefined) return '""';
+            if (Array.isArray(val)) {
+                val = val.join('; ');
+            } else if (typeof val === 'object') {
+                val = JSON.stringify(val);
+            }
+            const str = String(val).replace(/"/g, '""');
+            return `"${str}"`;
+        }
+
+        const rows = [headers.map(escapeCSV).join(',')];
+
+        for (const r of result.rows) {
+            let bmi = '';
+            if (r.height && r.weight) {
+                const hM = Number(r.height) / 100;
+                bmi = (Number(r.weight) / (hM * hM)).toFixed(1);
+            }
+
+            const formattedDate = r.submitted_at ? new Date(r.submitted_at).toISOString().split('T')[0] : (r.created_at ? new Date(r.created_at).toISOString().split('T')[0] : '');
+
+            const rowData = [
+                r.patient_id,
+                formattedDate,
+                r.full_name || '',
+                r.phone || '',
+                r.email || '',
+                r.status || '',
+                r.doctor_name || 'Unassigned',
+                r.referral_source || '',
+                r.age || '',
+                r.gender || '',
+                r.menstrual || '',
+                r.height || '',
+                r.weight || '',
+                bmi,
+                r.neck_raw || '',
+                r.medical || [],
+                r.consumption || [],
+                r.work || '',
+                r.schedule || '',
+                r.sleep_start || '',
+                r.wake_time || '',
+                r.sleep_opportunity || '',
+                r.avg_sleep || '',
+                r.sleep_satisfaction || '',
+                r.daytime_satisfaction || '',
+                r.daytime_sleepy || '',
+                r.sleepy_freq || '',
+                r.insomnia_gate || '',
+                r.sleep_latency || '',
+                r.night_waking || '',
+                r.difficulty_back_sleep || '',
+                r.hypersomnia_gate || '',
+                r.difficulty_waking || '',
+                r.nap_freq || '',
+                r.nap_duration || '',
+                r.nap_refreshed || '',
+                r.snoring_gate || '',
+                r.witnessed_apnea || '',
+                r.loud_snoring || '',
+                r.night_awakenings || '',
+                r.morning_headache || '',
+                r.dry_mouth || '',
+                r.circadian_gate || '',
+                r.chronotype || '',
+                r.brain_fog || '',
+                r.weekend_shift || '',
+                r.duration || '',
+                r.osa_score ?? '',
+                r.osa_tier || '',
+                r.insomnia_score ?? '',
+                r.insomnia_tier || '',
+                r.hypersomnia_score ?? '',
+                r.hypersomnia_tier || '',
+                r.circadian_score ?? '',
+                r.circadian_tier || '',
+                r.circadian_subtypes || [],
+                r.primary_finding_label || '',
+                r.comorbidities || []
+            ];
+
+            rows.push(rowData.map(escapeCSV).join(','));
+        }
+
+        const csvContent = '\uFEFF' + rows.join('\r\n'); // Include UTF-8 BOM for Excel
+        const filename = `Aurora_Sleep_Screening_Export_${new Date().toISOString().split('T')[0]}.csv`;
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.send(csvContent);
+
+    } catch (err) {
+        console.error('Export CSV error:', err.message);
+        return res.status(500).json({ success: false, message: 'Failed to export screening records.' });
+    }
+});
+
+// ──────────────────────────────────────────────
 // Get single patient with answers + results (AUTH REQUIRED)
 // Doctors can only see their own patients
 // ──────────────────────────────────────────────
