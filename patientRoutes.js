@@ -643,27 +643,32 @@ router.delete('/:id', authenticateCookie, async (req, res) => {
     try {
         const patientId = req.params.id;
 
-        let query = 'DELETE FROM patients WHERE id = $1';
-        const values = [patientId];
-
-        // Doctors can only delete their own patients
+        // Verify ownership if logged in as doctor
         if (req.user.role === 'doctor') {
-            query += ' AND doctor_id = $2';
-            values.push(req.user.sub);
+            const check = await pool.query('SELECT doctor_id FROM patients WHERE id = $1', [patientId]);
+            if (check.rows.length === 0) {
+                return res.status(404).json({ success: false, message: 'Patient not found' });
+            }
+            if (check.rows[0].doctor_id !== req.user.sub) {
+                return res.status(403).json({ success: false, message: 'Unauthorized to delete this patient' });
+            }
         }
 
-        query += ' RETURNING *';
+        // 1. Delete associated screening answers & results first to prevent foreign key constraint violations
+        await pool.query('DELETE FROM screening_answers WHERE patient_id = $1', [patientId]);
+        await pool.query('DELETE FROM screening_results WHERE patient_id = $1', [patientId]);
 
-        const result = await pool.query(query, values);
+        // 2. Delete main patient record
+        const result = await pool.query('DELETE FROM patients WHERE id = $1 RETURNING *', [patientId]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Patient not found' });
         }
 
-        res.json({ success: true, message: 'Patient deleted successfully' });
+        res.json({ success: true, message: 'Patient record deleted successfully' });
     } catch (error) {
         console.error('Delete patient error:', error.message);
-        res.status(500).json({ success: false, message: 'Failed to delete patient' });
+        res.status(500).json({ success: false, message: 'Failed to delete patient: ' + error.message });
     }
 });
 
